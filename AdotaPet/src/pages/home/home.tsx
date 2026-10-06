@@ -9,12 +9,78 @@ import {
   SafeAreaView,
   ScrollView,
   StatusBar,
-  StyleSheet,
   Switch,
   Text,
   TextInput,
   View,
+  type ListRenderItem,
 } from "react-native";
+//import { api } from "../lib/api";
+import { styles } from "../../styles/style.home";
+
+type Endereco = {
+  municipio?: string;
+  estado?: string;
+};
+
+type Dono = {
+  firebaseUid?: string;
+  nome?: string;
+  foto?: string | null;
+  endereco?: Endereco;
+};
+
+export type Animal = {
+  idAnimal: number;
+  nome: string;
+  especie?: { nome: string };
+  raca?: string | null;
+  idade: number;
+  porte: string;
+  sexo: string;
+  descricao: string;
+  foto?: string | null;
+  usuario?: Dono;
+  firebaseUidUsuario?: string;
+  nomeUsuario?: string;
+  fotoUsuario?: string | null;
+};
+
+type Especie = { nome: string };
+type Cor = { idCor: number; corNome: string };
+
+type OpcoesFiltro = {
+  especies: string[];
+  portes: string[];
+  cores: Cor[];
+};
+
+type Filtros = {
+  especie: string;
+  porte: string;
+  sexo: string;
+  cores: number[];
+  idade: string;
+  pertoDeMim: boolean;
+};
+
+type CampoTexto = "especie" | "porte" | "sexo" | "idade";
+
+export type ContatoAdocao = {
+  uid: string | undefined;
+  displayName: string;
+  photoURL: string | null;
+  idAnimal: number;
+  nomeAnimal: string;
+};
+
+type Props = {
+  usuarioLogado?: boolean;
+  acessoNegado?: boolean;
+  onVerAnimal?: (animal: Animal) => void;
+  onAdotar?: (contato: ContatoAdocao) => void;
+  onDenunciar?: (animal: Animal) => void;
+};
 
 const FAIXAS_IDADE = [
   { valor: "filhote", label: "Filhote (até 1 ano)", min: 0, max: 1 },
@@ -23,52 +89,14 @@ const FAIXAS_IDADE = [
   { valor: "idoso", label: "Idoso (9+ anos)", min: 9, max: null },
 ];
 
-const FILTROS_VAZIOS = {
+const FILTROS_VAZIOS: Filtros = {
   especie: "",
   porte: "",
   sexo: "",
-  cores: [] as number[],
+  cores: [],
   idade: "",
   pertoDeMim: false,
 };
-
-const API_URL = "http://SEU_IP_AQUI:3001";
-
-function montarQuery(params: Record<string, string | number | boolean | (string | number | boolean)[]>) {
-  const partes: string[] = [];
-  Object.entries(params).forEach(([chave, valor]) => {
-    if (Array.isArray(valor)) {
-      valor.forEach((item) =>
-        partes.push(`${encodeURIComponent(chave)}=${encodeURIComponent(item)}`)
-      );
-    } else {
-      partes.push(`${encodeURIComponent(chave)}=${encodeURIComponent(valor)}`);
-    }
-  });
-  return partes.length > 0 ? `?${partes.join("&")}` : "";
-}
-
-async function requisitar(caminho: string, { params = {}, signal, obterToken }: { params?: Record<string, string | number | boolean | (string | number | boolean)[]>; signal?: AbortSignal; obterToken?: () => Promise<string | null> } = {}) {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (obterToken) {
-    const token = await obterToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
-
-  const resposta = await fetch(`${API_URL}${caminho}${montarQuery(params)}`, {
-    headers,
-    signal,
-  });
-
-  if (!resposta.ok) {
-    const erro = Object.assign(new Error(`HTTP ${resposta.status} em ${caminho}`), {
-      status: resposta.status,
-    });
-    throw erro;
-  }
-
-  return resposta.json();
-}
 
 function Chip({ label, ativo, onPress }: { label: string; ativo: boolean; onPress: () => void }) {
   return (
@@ -95,47 +123,32 @@ function GrupoFiltro({ titulo, children }: { titulo: string; children: React.Rea
 export default function HomeScreen({
   usuarioLogado = false,
   acessoNegado: acessoNegadoInicial = false,
-  obterToken,
   onVerAnimal,
   onAdotar,
   onDenunciar,
-}: {
-  usuarioLogado?: boolean;
-  acessoNegado?: boolean;
-  obterToken?: () => Promise<string | null>;
-  onVerAnimal?: (animal: any) => void;
-  onAdotar?: (animal: any) => void;
-  onDenunciar?: (animal: any) => void;
-}) {
-  const [animais, setAnimais] = useState<any[]>([]);
+}: Props) {
+  const [animais, setAnimais] = useState<Animal[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [search, setSearch] = useState("");
   const [buscaDebounced, setBuscaDebounced] = useState("");
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
-  const [filtros, setFiltros] = useState(FILTROS_VAZIOS);
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
   const [acessoNegado, setAcessoNegado] = useState(acessoNegadoInicial);
-  const [opcoesFiltro, setOpcoesFiltro] = useState<{
-    especies: string[];
-    portes: string[];
-    cores: { idCor: number; corNome: string }[];
-  }>({
+  const [opcoesFiltro, setOpcoesFiltro] = useState<OpcoesFiltro>({
     especies: [],
     portes: [],
     cores: [],
   });
 
-  const atualizarFiltro = (campo: keyof typeof FILTROS_VAZIOS, valor: (typeof FILTROS_VAZIOS)[keyof typeof FILTROS_VAZIOS]) => {
+  const atualizarFiltro = <K extends keyof Filtros>(campo: K, valor: Filtros[K]) => {
     setFiltros((prev) => ({ ...prev, [campo]: valor }));
   };
 
-  const alternarOpcao = (
-    campo: Exclude<keyof typeof FILTROS_VAZIOS, "cores">,
-    valor: (typeof FILTROS_VAZIOS)[Exclude<keyof typeof FILTROS_VAZIOS, "cores">],
-  ) => {
+  const alternarOpcao = (campo: CampoTexto, valor: string) => {
     setFiltros((prev) => ({ ...prev, [campo]: prev[campo] === valor ? "" : valor }));
   };
 
-  const alternarCor = (idCor: (typeof FILTROS_VAZIOS)["cores"][number]) => {
+  const alternarCor = (idCor: number) => {
     setFiltros((prev) => ({
       ...prev,
       cores: prev.cores.includes(idCor)
@@ -151,7 +164,7 @@ export default function HomeScreen({
 
   const filtrosAtivos =
     Object.entries(filtros).some(([chave, valor]) => {
-      if (chave === "cores") return Array.isArray(valor) && valor.length > 0;
+      if (chave === "cores") return (valor as number[]).length > 0;
       if (chave === "pertoDeMim") return valor === true;
       return valor !== "";
     }) || search !== "";
@@ -163,9 +176,9 @@ export default function HomeScreen({
 
   useEffect(() => {
     Promise.allSettled([
-      requisitar("/especies", { obterToken }),
-      requisitar("/animal/portes-disponiveis", { obterToken }),
-      requisitar("/cores-animal", { obterToken }),
+      api<Especie[]>("/especies"),
+      api<string[]>("/animal/portes-disponiveis"),
+      api<Cor[]>("/cores-animal"),
     ]).then(([especiesRes, portesRes, coresRes]) => {
       if (especiesRes.status === "rejected") {
         console.error("Erro ao buscar espécies", especiesRes.reason);
@@ -176,9 +189,9 @@ export default function HomeScreen({
       if (coresRes.status === "rejected") {
         console.error("Erro ao buscar cores", coresRes.reason);
       }
+
       setOpcoesFiltro({
-        especies:
-          especiesRes.status === "fulfilled" ? especiesRes.value.map((e: { nome: string }) => e.nome) : [],
+        especies: especiesRes.status === "fulfilled" ? especiesRes.value.map((e) => e.nome) : [],
         portes: portesRes.status === "fulfilled" ? portesRes.value : [],
         cores: coresRes.status === "fulfilled" ? coresRes.value : [],
       });
@@ -189,7 +202,7 @@ export default function HomeScreen({
     const controller = new AbortController();
     setCarregando(true);
 
-    const params: Record<string, string | boolean | string[] | number | number[]> = {};
+    const params: Record<string, string | number | boolean | number[]> = {};
     if (filtros.especie) params.especie = filtros.especie;
     if (filtros.porte) params.porte = filtros.porte;
     if (filtros.cores.length > 0) params.cores = filtros.cores;
@@ -204,13 +217,13 @@ export default function HomeScreen({
       }
     }
 
-    requisitar("/animal", { params, signal: controller.signal, obterToken })
+    api<Animal[]>("/animal", { params, signal: controller.signal })
       .then((dados) => {
         setAnimais(Array.isArray(dados) ? dados : []);
         setCarregando(false);
       })
-      .catch((err) => {
-        if (err.name === "AbortError") return;
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name === "AbortError") return;
         console.error("Erro ao buscar animais", err);
         setCarregando(false);
       });
@@ -218,7 +231,7 @@ export default function HomeScreen({
     return () => controller.abort();
   }, [filtros, buscaDebounced]);
 
-  const pedirAuth = (acao: () => void, motivo?: string) => {
+  const pedirAuth = (acao: () => void, motivo: "adotar" | "generico") => {
     if (usuarioLogado) {
       acao();
       return;
@@ -231,12 +244,12 @@ export default function HomeScreen({
     );
   };
 
-  const handleVerAnimal = (animal: (typeof animais)[number]) => {
+  const handleVerAnimal = (animal: Animal) => {
     if (onVerAnimal) onVerAnimal(animal);
     else Alert.alert(animal.nome, "Aqui abriria a tela de detalhes do animal.");
   };
 
-  const handleAdotar = (animal: (typeof animais)[number]) => {
+  const handleAdotar = (animal: Animal) => {
     const uidDono = animal.usuario?.firebaseUid ?? animal.firebaseUidUsuario;
     const nomeDono = animal.usuario?.nome ?? animal.nomeUsuario;
     const fotoDono = animal.usuario?.foto ?? animal.fotoUsuario;
@@ -256,14 +269,14 @@ export default function HomeScreen({
     }, "adotar");
   };
 
-  const handleDenunciar = (animal: (typeof animais)[number]) => {
+  const handleDenunciar = (animal: Animal) => {
     pedirAuth(() => {
       if (onDenunciar) onDenunciar(animal);
       else Alert.alert("Denunciar", `Aqui abriria o formulário de denúncia de ${animal.nome}.`);
     }, "generico");
   };
 
-  const estiloBadgeSexo = (sexo: string | null | undefined) => {
+  const estiloBadgeSexo = (sexo?: string) => {
     const normalizado = sexo?.toLowerCase();
     if (normalizado === "macho") return styles.badgeMacho;
     if (normalizado === "fêmea" || normalizado === "femea") return styles.badgeFemea;
@@ -322,7 +335,7 @@ export default function HomeScreen({
     </View>
   );
 
-  const renderAnimal = ({ item: animal }: { item: (typeof animais)[number] }) => (
+  const renderAnimal: ListRenderItem<Animal> = ({ item: animal }) => (
     <Pressable
       onPress={() => handleVerAnimal(animal)}
       style={({ pressed }) => [styles.card, pressed && styles.pressionado]}
@@ -499,303 +512,4 @@ export default function HomeScreen({
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
-  );
-}
-
-const styles = StyleSheet.create({
-  fundo: {
-    flex: 1,
-    backgroundColor: "#FFF4E6",
-  },
-  lista: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-  },
-  pressionado: {
-    opacity: 0.85,
-  },
-
-  alertaAcessoNegado: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "#FDECEA",
-  },
-  alertaTexto: {
-    flex: 1,
-    fontSize: 14,
-    color: "#B3261E",
-  },
-  alertaFechar: {
-    marginLeft: 12,
-    fontSize: 22,
-    lineHeight: 22,
-    color: "#B3261E",
-  },
-
-  hero: {
-    alignItems: "center",
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  heroTitulo: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#C2571A",
-    textAlign: "center",
-  },
-  heroSubtitulo: {
-    marginTop: 6,
-    marginBottom: 18,
-    fontSize: 15,
-    color: "#6B5B4D",
-    textAlign: "center",
-  },
-  busca: {
-    alignSelf: "stretch",
-    height: 48,
-    borderWidth: 1,
-    borderColor: "#E3D5C6",
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    fontSize: 15,
-    color: "#2B2118",
-    backgroundColor: "#FFFFFF",
-  },
-
-  botaoFiltrar: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E3D5C6",
-    backgroundColor: "#FFFFFF",
-  },
-  botaoFiltrarTexto: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#2B2118",
-  },
-  filtrosAtivosIndicador: {
-    width: 8,
-    height: 8,
-    marginLeft: 8,
-    borderRadius: 4,
-    backgroundColor: "#C2571A",
-  },
-
-  estadoVazio: {
-    alignItems: "center",
-    paddingVertical: 48,
-    gap: 12,
-  },
-  estadoVazioTexto: {
-    fontSize: 15,
-    color: "#6B5B4D",
-  },
-
-  card: {
-    marginBottom: 16,
-    borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
-    elevation: 3,
-    shadowColor: "#000000",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  cardImagem: {
-    width: "100%",
-    height: 200,
-  },
-  cardImagemPlaceholder: {
-    width: "100%",
-    height: 160,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FBE3CC",
-  },
-  cardImagemEmoji: {
-    fontSize: 56,
-  },
-  cardCorpo: {
-    padding: 16,
-  },
-  cardNome: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#2B2118",
-  },
-  cardRaca: {
-    marginTop: 2,
-    fontSize: 14,
-    color: "#6B5B4D",
-  },
-  cardLocalizacao: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#6B5B4D",
-  },
-  badgeLinha: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
-  },
-  badge: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: "#F3EADF",
-  },
-  badgeTexto: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#4A3B2E",
-  },
-  badgeMacho: {
-    backgroundColor: "#DCEBFA",
-  },
-  badgeFemea: {
-    backgroundColor: "#FADCEA",
-  },
-  cardDescricao: {
-    marginTop: 12,
-    marginBottom: 16,
-    fontSize: 14,
-    lineHeight: 20,
-    color: "#4A3B2E",
-  },
-  botaoAdotar: {
-    height: 46,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#C2571A",
-  },
-  botaoAdotarTexto: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  botaoDenunciar: {
-    height: 42,
-    marginTop: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E3D5C6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  botaoDenunciarTexto: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#B3261E",
-  },
-
-  modalFundo: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  filtrosHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0E6DA",
-  },
-  filtrosTitulo: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#2B2118",
-  },
-  filtrosHeaderAcoes: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-  },
-  filtrosLimpar: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#C2571A",
-  },
-  filtrosFechar: {
-    fontSize: 30,
-    lineHeight: 30,
-    color: "#6B5B4D",
-  },
-  filtrosConteudo: {
-    padding: 20,
-    gap: 24,
-  },
-  toggleLinha: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  toggleTexto: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#2B2118",
-  },
-  filtroGrupo: {
-    gap: 10,
-  },
-  filtroLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#2B2118",
-  },
-  chipsLinha: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E3D5C6",
-    backgroundColor: "#FFFCF8",
-  },
-  chipAtivo: {
-    borderColor: "#C2571A",
-    backgroundColor: "#C2571A",
-  },
-  chipTexto: {
-    fontSize: 14,
-    color: "#4A3B2E",
-  },
-  chipTextoAtivo: {
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  filtrosRodape: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#F0E6DA",
-  },
-  filtrosAplicar: {
-    height: 50,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#C2571A",
-  },
-  filtrosAplicarTexto: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-});
+  )};

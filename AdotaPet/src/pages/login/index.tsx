@@ -1,22 +1,64 @@
-import { SetStateAction, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
-import styles from "../../styles/style.login";
+import { useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+//import { api } from "../lib/api";
+import { styles } from "../../styles/style.login";
 
-function comTimeout(promise: Promise<void>, ms: number, rotulo: string) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`TIMEOUT: ${rotulo} não respondeu em ${ms / 1000}s`)),
-        ms
-      )
-    ),
-  ]);
-}
+const LIMITE_MS = 30000;
 
-type FirebaseError = Error & {
-  code?: string;
+type UsuarioMe = {
+  idUsuario: number;
+  nome: string;
+  foto: string | null;
+  perfil: string;
 };
+
+export type UsuarioLogado = {
+  id: number;
+  firebaseUid: string;
+  nome: string;
+  foto: string | null;
+  perfil: string;
+};
+
+export type PerfilFirestore = {
+  displayName: string;
+  photoURL: string | null;
+  email: string;
+};
+
+type Props = {
+  entrar: (email: string, senha: string) => Promise<{ uid: string }>;
+  onLoginSucesso: (usuario: UsuarioLogado) => void | Promise<void>;
+  sincronizarPerfil?: (uid: string, perfil: PerfilFirestore) => Promise<void>;
+  onEsqueciSenha?: () => void;
+  onCadastro?: () => void;
+};
+
+function comTimeout<T>(promise: Promise<T>, ms: number, rotulo: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const limite = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`TIMEOUT: ${rotulo} não respondeu em ${ms / 1000}s`)),
+      ms
+    );
+  });
+
+  return Promise.race([promise, limite]).finally(() => clearTimeout(timer));
+}
 
 function mensagemErroFirebase(code?: string) {
   switch (code) {
@@ -33,40 +75,29 @@ function mensagemErroFirebase(code?: string) {
   }
 }
 
-async function loginSimulado(email: string, senha: string) {
-  await new Promise((resolve) => setTimeout(resolve, 1200));
-  if (senha !== "123456") {
-    const erro = new Error("Credenciais inválidas") as FirebaseError;
-    erro.code = "auth/invalid-credential";
-    throw erro;
-  }
-}
-
-type LoginScreenProps = {
-  onLogin?: (email: string, senha: string) => Promise<void>;
-  onLoginSucesso?: () => void;
-  onEsqueciSenha?: () => void;
-  onCadastro?: () => void;
-};
-
 export default function LoginScreen({
-  onLogin = loginSimulado,
+  entrar,
   onLoginSucesso,
+  sincronizarPerfil,
   onEsqueciSenha,
   onCadastro,
-}: LoginScreenProps) {
+}: Props) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const showMessage = (text: SetStateAction<string>, error = false) => {
+  const senhaRef = useRef<TextInput>(null);
+
+  const showMessage = (text: string, error = false) => {
     setMessage(text);
     setIsError(error);
   };
 
   const handleLogin = async () => {
+    if (loading) return;
+
     if (!email.trim() || !senha) {
       showMessage("Preencha o email e a senha.", true);
       return;
@@ -75,26 +106,59 @@ export default function LoginScreen({
     setLoading(true);
     setMessage("");
 
+    let usuario: UsuarioLogado;
+
     try {
-      await comTimeout(onLogin(email.trim(), senha), 30000, "Servidor");
-      showMessage("Login realizado com sucesso!");
-      if (onLoginSucesso) onLoginSucesso();
+      const emailLimpo = email.trim();
+
+      const conta = await comTimeout(entrar(emailLimpo, senha), LIMITE_MS, "Firebase Authentication");
+
+      const dados = await comTimeout(
+        api<UsuarioMe>("/usuario/me"),
+        LIMITE_MS,
+        "Servidor (Spring Boot)"
+      );
+
+      if (sincronizarPerfil) {
+        await comTimeout(
+          sincronizarPerfil(conta.uid, {
+            displayName: dados.nome,
+            photoURL: dados.foto || null,
+            email: emailLimpo,
+          }),
+          LIMITE_MS,
+          "Firestore"
+        );
+      }
+
+      usuario = {
+        id: dados.idUsuario,
+        firebaseUid: conta.uid,
+        nome: dados.nome,
+        foto: dados.foto,
+        perfil: dados.perfil,
+      };
     } catch (error) {
       console.error(error);
-      const erro = error instanceof Error ? error : new Error(String(error));
-      const codigoErro =
-        typeof error === "object" && error !== null && "code" in error
-          ? typeof error.code === "string"
-            ? error.code
-            : undefined
-          : undefined;
-      const mensagemFirebase = mensagemErroFirebase(codigoErro);
+      const code = (error as { code?: string }).code;
+      const mensagemFirebase = mensagemErroFirebase(code);
+
       showMessage(
-        erro.message.startsWith("TIMEOUT:")
-          ? `${erro.message}. Verifique sua conexão e tente novamente.`
+        error instanceof Error && error.message.startsWith("TIMEOUT:")
+          ? `${error.message}. Verifique sua conexão e tente novamente.`
           : mensagemFirebase || "Erro ao conectar com o servidor.",
         true
       );
+      setLoading(false);
+      return;
+    }
+
+    showMessage("Login realizado com sucesso!");
+
+    try {
+      await onLoginSucesso(usuario);
+    } catch (error) {
+      console.error("Erro ao finalizar o login", error);
     } finally {
       setLoading(false);
     }
@@ -117,10 +181,7 @@ export default function LoginScreen({
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.cabecalho}>
             <Text style={styles.logo}>🐾 AdotaPet</Text>
             <Text style={styles.subtitulo}>Uma adoção, duas vidas transformadas.</Text>
@@ -143,12 +204,16 @@ export default function LoginScreen({
                 autoComplete="email"
                 textContentType="emailAddress"
                 editable={!loading}
+                returnKeyType="next"
+                onSubmitEditing={() => senhaRef.current?.focus()}
+                blurOnSubmit={false}
               />
             </View>
 
             <View style={styles.formGroup}>
               <Text style={styles.label}>Senha:</Text>
               <TextInput
+                ref={senhaRef}
                 style={styles.input}
                 placeholder="Digite sua senha"
                 placeholderTextColor="#9A8F85"
@@ -160,8 +225,8 @@ export default function LoginScreen({
                 autoComplete="password"
                 textContentType="password"
                 editable={!loading}
-                onSubmitEditing={handleLogin}
                 returnKeyType="go"
+                onSubmitEditing={handleLogin}
               />
             </View>
 
