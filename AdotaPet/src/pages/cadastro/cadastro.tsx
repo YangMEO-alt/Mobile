@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { styles } from "../../styles/style.cadastro";
-import api from "../../lib/api";
+import api from "../../../../lib/api";
 
 const IDADE_MINIMA = 18;
 
@@ -137,9 +137,10 @@ function mensagemErroFirebase(code?: string) {
   }
 }
 
-function extrairMensagemErro(error: String) {
-  if (error instanceof ErroHttp) {
-    const dados = error.dados;
+function extrairMensagemErro(error: unknown) {
+  if (error && typeof error === "object" && "status" in error && "dados" in error) {
+    const erroHttp = error as { status?: number; dados?: unknown };
+    const dados = erroHttp.dados;
 
     if (typeof dados === "string" && dados.trim()) return dados;
 
@@ -151,7 +152,7 @@ function extrairMensagemErro(error: String) {
       }
     }
 
-    if (error.status === 401 || error.status === 403) {
+    if (erroHttp.status === 401 || erroHttp.status === 403) {
       return "Você não tem permissão para fazer isso. Entre na sua conta e tente novamente.";
     }
   }
@@ -383,11 +384,11 @@ export default function Cadastro({
   useEffect(() => {
     api<ItemLookup[]>("/tipos-residencia")
       .then(setTiposResidencia)
-      .catch((err) => console.error("Erro ao buscar tipos de residência", err));
+      .catch((err: any) => console.error("Erro ao buscar tipos de residência", err));
 
     api<ItemLookup[]>("/tamanhos-residencia")
       .then(setTamanhosResidencia)
-      .catch((err) => console.error("Erro ao buscar tamanhos de residência", err));
+      .catch((err: any) => console.error("Erro ao buscar tamanhos de residência", err));
   }, []);
 
   const handleTelChange = (valor: string) => {

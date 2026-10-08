@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { SetStateAction, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +15,7 @@ import {
   View,
   type ListRenderItem,
 } from "react-native";
-import api from "../../lib/api";
+import api from "../../../../lib/api";
 import { styles } from "../../styles/style.home";
 
 type Endereco = {
@@ -191,7 +191,7 @@ export default function HomeScreen({
       }
 
       setOpcoesFiltro({
-        especies: especiesRes.status === "fulfilled" ? especiesRes.value.map((e) => e.nome) : [],
+        especies: especiesRes.status === "fulfilled" ? especiesRes.value.map((e: { nome: any; }) => e.nome) : [],
         portes: portesRes.status === "fulfilled" ? portesRes.value : [],
         cores: coresRes.status === "fulfilled" ? coresRes.value : [],
       });
@@ -218,7 +218,7 @@ export default function HomeScreen({
     }
 
     api<Animal[]>("/animal", { params, signal: controller.signal })
-      .then((dados) => {
+      .then((dados: SetStateAction<Animal[]>) => {
         setAnimais(Array.isArray(dados) ? dados : []);
         setCarregando(false);
       })

@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import api from "../../lib/api";
+import api from "../../../../lib/api";
 import { styles } from "../../styles/style.login";
 
 const LIMITE_MS = 30000;
@@ -112,11 +112,11 @@ export default function LoginScreen({
 
       const conta = await comTimeout(entrar(emailLimpo, senha), LIMITE_MS, "Firebase Authentication");
 
-      const dados = await comTimeout(
+      const dados = (await comTimeout(
         api<UsuarioMe>("/usuario/me"),
         LIMITE_MS,
         "Servidor (Spring Boot)"
-      );
+      )) as UsuarioMe;
 
       if (sincronizarPerfil) {
         await comTimeout(
