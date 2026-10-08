@@ -10,13 +10,12 @@ import {
   SafeAreaView,
   ScrollView,
   StatusBar,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { styles } from "../../styles/style.cadastro";
-// import { api, ErroHttp } from "../lib/api";
+import api from "../../lib/api";
 
 const IDADE_MINIMA = 18;
 
@@ -138,7 +137,7 @@ function mensagemErroFirebase(code?: string) {
   }
 }
 
-function extrairMensagemErro(error: unknown) {
+function extrairMensagemErro(error: String) {
   if (error instanceof ErroHttp) {
     const dados = error.dados;
 
