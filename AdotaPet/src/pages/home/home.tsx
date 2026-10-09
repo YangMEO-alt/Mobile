@@ -15,7 +15,7 @@ import {
   View,
   type ListRenderItem,
 } from "react-native";
-import api from "../../../../lib/api";
+import { api } from "../../lib/api";
 import { styles } from "../../styles/style.home";
 
 type Endereco = {

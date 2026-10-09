@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import api from "../../../../lib/api";
+import { api } from "../../lib/api";
 import { styles } from "../../styles/style.login";
 
 const LIMITE_MS = 30000;

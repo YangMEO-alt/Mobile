@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { styles } from "../../styles/style.cadastro";
-import api from "../../../../lib/api";
+import { api } from "../../lib/api";
 
 const IDADE_MINIMA = 18;
 
