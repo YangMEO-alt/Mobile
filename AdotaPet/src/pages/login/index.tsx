@@ -12,75 +12,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { api } from "../../lib/api";
+import { api, ErroHttp, extrairMensagemErro, type Sessao } from "../../lib/api";
 import { styles } from "../../styles/style.login";
 
-const LIMITE_MS = 30000;
-
-type UsuarioMe = {
-  idUsuario: number;
-  nome: string;
-  foto: string | null;
-  perfil: string;
-};
-
-export type UsuarioLogado = {
-  id: number;
-  firebaseUid: string;
-  nome: string;
-  foto: string | null;
-  perfil: string;
-};
-
-export type PerfilFirestore = {
-  displayName: string;
-  photoURL: string | null;
-  email: string;
-};
-
 type Props = {
-  entrar: (email: string, senha: string) => Promise<{ uid: string }>;
-  onLoginSucesso: (usuario: UsuarioLogado) => void | Promise<void>;
-  sincronizarPerfil?: (uid: string, perfil: PerfilFirestore) => Promise<void>;
+  onLoginSucesso: (sessao: Sessao) => void | Promise<void>;
   onEsqueciSenha?: () => void;
   onCadastro?: () => void;
 };
 
-function comTimeout<T>(promise: Promise<T>, ms: number, rotulo: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  const limite = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`TIMEOUT: ${rotulo} não respondeu em ${ms / 1000}s`)),
-      ms
-    );
-  });
-
-  return Promise.race([promise, limite]).finally(() => clearTimeout(timer));
-}
-
-function mensagemErroFirebase(code?: string) {
-  switch (code) {
-    case "auth/invalid-credential":
-    case "auth/wrong-password":
-    case "auth/user-not-found":
-      return "Email ou senha inválidos.";
-    case "auth/too-many-requests":
-      return "Muitas tentativas seguidas. Aguarde um pouco antes de tentar de novo.";
-    case "auth/user-disabled":
-      return "Esta conta foi suspensa.";
-    default:
-      return null;
-  }
-}
-
-export default function LoginScreen({
-  entrar,
-  onLoginSucesso,
-  sincronizarPerfil,
-  onEsqueciSenha,
-  onCadastro,
-}: Props) {
+export default function LoginScreen({ onLoginSucesso, onEsqueciSenha, onCadastro }: Props) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [message, setMessage] = useState("");
@@ -105,49 +46,30 @@ export default function LoginScreen({
     setLoading(true);
     setMessage("");
 
-    let usuario: UsuarioLogado;
+    let sessao: Sessao;
 
     try {
-      const emailLimpo = email.trim();
+      sessao = await api<Sessao>("/auth/login", {
+        method: "POST",
+        body: { email: email.trim(), senha },
+      });
+    } catch (error) {
+      console.error(error);
 
-      const conta = await comTimeout(entrar(emailLimpo, senha), LIMITE_MS, "Firebase Authentication");
-
-      const dados = (await comTimeout(
-        api<UsuarioMe>("/usuario/me"),
-        LIMITE_MS,
-        "Servidor (Spring Boot)"
-      )) as UsuarioMe;
-
-      if (sincronizarPerfil) {
-        await comTimeout(
-          sincronizarPerfil(conta.uid, {
-            displayName: dados.nome,
-            photoURL: dados.foto || null,
-            email: emailLimpo,
-          }),
-          LIMITE_MS,
-          "Firestore"
+      if (error instanceof ErroHttp) {
+        showMessage(
+          extrairMensagemErro(error, "Não foi possível entrar agora. Tente novamente."),
+          true
+        );
+      } else if (error instanceof Error && error.message.startsWith("TIMEOUT:")) {
+        showMessage(`${error.message}. Verifique sua conexão e tente novamente.`, true);
+      } else {
+        showMessage(
+          "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.",
+          true
         );
       }
 
-      usuario = {
-        id: dados.idUsuario,
-        firebaseUid: conta.uid,
-        nome: dados.nome,
-        foto: dados.foto,
-        perfil: dados.perfil,
-      };
-    } catch (error) {
-      console.error(error);
-      const code = (error as { code?: string }).code;
-      const mensagemFirebase = mensagemErroFirebase(code);
-
-      showMessage(
-        error instanceof Error && error.message.startsWith("TIMEOUT:")
-          ? `${error.message}. Verifique sua conexão e tente novamente.`
-          : mensagemFirebase || "Erro ao conectar com o servidor.",
-        true
-      );
       setLoading(false);
       return;
     }
@@ -155,7 +77,7 @@ export default function LoginScreen({
     showMessage("Login realizado com sucesso!");
 
     try {
-      await onLoginSucesso(usuario);
+      await onLoginSucesso(sessao);
     } catch (error) {
       console.error("Erro ao finalizar o login", error);
     } finally {

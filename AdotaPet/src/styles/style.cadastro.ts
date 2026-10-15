@@ -131,6 +131,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#B3261E",
   },
+  infoCampo: {
+    marginTop: 6,
+    fontSize: 13,
+    color: "#6B5B4D",
+  },
+
+  sugestaoEmail: {
+    marginTop: 6,
+    fontSize: 13,
+    color: "#6B5B4D",
+  },
+  sugestaoEmailBotao: {
+    fontWeight: "700",
+    color: "#C2571A",
+  },
+
+  checklistSenha: {
+    marginTop: 10,
+    gap: 6,
+  },
+  requisitoLinha: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  requisitoMarca: {
+    width: 16,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  requisitoTexto: {
+    flex: 1,
+    fontSize: 13,
+  },
+  requisitoOk: {
+    color: "#1E7B34",
+  },
+  requisitoPendente: {
+    color: "#9A8F85",
+  },
 
   checkboxLinha: {
     flexDirection: "row",
@@ -175,9 +216,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     backgroundColor: "#FFFCF8",
   },
-  seletorDesabilitado: {
-    opacity: 0.6,
-  },
   seletorTexto: {
     flex: 1,
     fontSize: 16,
@@ -214,11 +252,6 @@ const styles = StyleSheet.create({
     fontSize: 30,
     lineHeight: 30,
     color: "#6B5B4D",
-  },
-  modalBuscaArea: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0E6DA",
   },
   modalItem: {
     flexDirection: "row",

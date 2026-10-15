@@ -15,14 +15,13 @@ export default function App() {
   };
 
   if (tela === "cadastro") {
-    return (
-      <Cadastro
-        criarConta={async () => ({ uid: "teste", desfazer: async () => {} })}
-        onCadastroConcluido={irParaHome}
-        onLogin={() => setTela("login")}
-      />
-    );
-  }
+  return (
+    <Cadastro
+      onCadastroConcluido={irParaHome}
+      onLogin={() => setTela("login")}
+    />
+  );
+}
 
   if (tela === "home") {
     return <Home usuarioLogado={usuarioLogado} />;

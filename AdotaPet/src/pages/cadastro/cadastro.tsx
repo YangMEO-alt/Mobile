@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,55 +10,69 @@ import {
   SafeAreaView,
   ScrollView,
   StatusBar,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { styles } from "../../styles/style.cadastro";
-import { api } from "../../lib/api";
+import { api, ErroHttp } from "../../lib/api";
+import { styles } from "../../styles/style.cadastro"
 
 const IDADE_MINIMA = 18;
+const SENHA_MIN_LENGTH = 8;
 
 const ETAPAS = [{ titulo: "Sua conta" }, { titulo: "Seus dados" }, { titulo: "Onde você mora" }];
 
 type ItemLookup = { id: number; nome: string };
-type Estado = { id: number; sigla: string; nome: string };
-type Municipio = { id: number; nome: string };
-type UsuarioApi = {
-  idUsuario: number;
-  nome: string;
-  foto: string | null;
-  perfil: string;
+type EnderecoCep = {
+  estado?: string;
+  municipio?: string;
+  bairro?: string;
+  logradouro?: string;
 };
+type RespostaRegistro = Record<string, unknown>;
 type Opcao = { valor: string; rotulo: string };
 
-export type ContaCriada = {
-  uid: string;
-  desfazer: () => Promise<void>;
-};
-
-export type UsuarioCadastrado = {
-  id: number;
-  firebaseUid: string;
-  nome: string;
-  foto: string | null;
-  perfil: string;
+type RequisitosSenha = {
+  requisitoTamanho: boolean;
+  requisitoMaiuscula: boolean;
+  requisitoMinuscula: boolean;
+  requisitoNumero: boolean;
+  requisitoEspecial: boolean;
+  requisitoSoAscii: boolean;
 };
 
 type Props = {
-  criarConta: (email: string, senha: string) => Promise<ContaCriada>;
-  onCadastroConcluido: (usuario: UsuarioCadastrado) => void | Promise<void>;
+  onCadastroConcluido: (resposta: RespostaRegistro) => void | Promise<void>;
   onLogin?: () => void;
-  fotoPadrao?: string | null;
 };
 
-function semAcento(texto: string) {
-  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
+const ITENS_SENHA: { chave: keyof RequisitosSenha; texto: string }[] = [
+  { chave: "requisitoTamanho", texto: `Mínimo de ${SENHA_MIN_LENGTH} caracteres` },
+  { chave: "requisitoMaiuscula", texto: "Uma letra maiúscula" },
+  { chave: "requisitoMinuscula", texto: "Uma letra minúscula" },
+  { chave: "requisitoNumero", texto: "Um número" },
+  { chave: "requisitoEspecial", texto: "Um caractere especial (ex.: !@#$%)" },
+  { chave: "requisitoSoAscii", texto: "Sem emojis ou acentos" },
+];
+
+const DOMINIOS_COMUNS = [
+  "gmail.com",
+  "hotmail.com",
+  "hotmail.com.br",
+  "outlook.com",
+  "outlook.com.br",
+  "yahoo.com",
+  "yahoo.com.br",
+  "icloud.com",
+  "live.com",
+  "uol.com.br",
+  "bol.com.br",
+];
 
 function cpfValido(cpfDigitado: string) {
   const cpf = cpfDigitado.replace(/\D/g, "");
-  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  if (cpf.length !== 11 || new Set(cpf).size === 1) return false;
 
   const digitos = cpf.split("").map(Number);
 
@@ -87,6 +101,72 @@ function telefoneValido(valor: string) {
 
 function emailValido(valor: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor.trim());
+}
+
+function checarRequisitosSenha(senha: string): RequisitosSenha {
+  return {
+    requisitoTamanho: senha.length >= SENHA_MIN_LENGTH,
+    requisitoMaiuscula: /[A-Z]/.test(senha),
+    requisitoMinuscula: /[a-z]/.test(senha),
+    requisitoNumero: /\d/.test(senha),
+    requisitoEspecial: /[!-/:-@[-`{-~]/.test(senha),
+    requisitoSoAscii: /^[\x20-\x7E]*$/.test(senha),
+  };
+}
+
+function validarForcaSenha(senha: string) {
+  const r = checarRequisitosSenha(senha);
+  if (!r.requisitoSoAscii) return "A senha não pode ter emojis ou acentos.";
+  if (!r.requisitoTamanho) return `A senha precisa ter pelo menos ${SENHA_MIN_LENGTH} caracteres.`;
+  if (!r.requisitoMaiuscula) return "A senha precisa ter uma letra maiúscula.";
+  if (!r.requisitoMinuscula) return "A senha precisa ter uma letra minúscula.";
+  if (!r.requisitoNumero) return "A senha precisa ter um número.";
+  if (!r.requisitoEspecial) return "A senha precisa ter um caractere especial (ex.: !@#$%).";
+  return null;
+}
+
+function distancia(a: string, b: string) {
+  const linha = Array.from({ length: b.length + 1 }, (_, j) => j);
+
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = linha[0];
+    linha[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const guardado = linha[j];
+      linha[j] = Math.min(
+        linha[j] + 1,
+        linha[j - 1] + 1,
+        anterior + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+      anterior = guardado;
+    }
+  }
+
+  return linha[b.length];
+}
+
+function sugerirCorrecaoEmail(email: string) {
+  const texto = email.trim().toLowerCase();
+  const arroba = texto.lastIndexOf("@");
+  if (arroba < 1) return null;
+
+  const usuario = texto.slice(0, arroba);
+  const dominio = texto.slice(arroba + 1);
+  if (dominio.length < 5 || DOMINIOS_COMUNS.includes(dominio)) return null;
+
+  let melhor: string | null = null;
+  let melhorDistancia = Infinity;
+
+  for (const candidato of DOMINIOS_COMUNS) {
+    const d = distancia(dominio, candidato);
+    const limite = candidato.length >= 10 ? 2 : 1;
+    if (d <= limite && d < melhorDistancia) {
+      melhor = candidato;
+      melhorDistancia = d;
+    }
+  }
+
+  return melhor ? `${usuario}@${melhor}` : null;
 }
 
 function formatarData(texto: string) {
@@ -124,23 +204,9 @@ function idadeEmAnos(data: DataInterpretada) {
   return idade;
 }
 
-function mensagemErroFirebase(code?: string) {
-  switch (code) {
-    case "auth/email-already-in-use":
-      return "Este e-mail já está cadastrado.";
-    case "auth/invalid-email":
-      return "E-mail inválido.";
-    case "auth/weak-password":
-      return "A senha precisa ter pelo menos 6 caracteres.";
-    default:
-      return null;
-  }
-}
-
-function extrairMensagemErro(error: unknown) {
-  if (error && typeof error === "object" && "status" in error && "dados" in error) {
-    const erroHttp = error as { status?: number; dados?: unknown };
-    const dados = erroHttp.dados;
+function extrairMensagemErro(error: unknown, fallback = "Erro ao conectar com o servidor.") {
+  if (error instanceof ErroHttp) {
+    const dados = error.dados;
 
     if (typeof dados === "string" && dados.trim()) return dados;
 
@@ -151,17 +217,13 @@ function extrairMensagemErro(error: unknown) {
         if (typeof valor === "string" && valor.trim()) return valor;
       }
     }
-
-    if (erroHttp.status === 401 || erroHttp.status === 403) {
-      return "Você não tem permissão para fazer isso. Entre na sua conta e tente novamente.";
-    }
   }
 
   if (error instanceof TypeError) {
     return "Não foi possível conectar ao servidor. Verifique sua conexão.";
   }
 
-  return "Erro ao conectar com o servidor.";
+  return fallback;
 }
 
 function Campo({ rotulo, erro, children }: { rotulo: string; erro?: string; children: ReactNode }) {
@@ -198,45 +260,38 @@ function Checkbox({
   );
 }
 
+function RequisitoSenha({ atendido, children }: { atendido: boolean; children: ReactNode }) {
+  return (
+    <View style={styles.requisitoLinha}>
+      <Text style={[styles.requisitoMarca, atendido ? styles.requisitoOk : styles.requisitoPendente]}>
+        {atendido ? "✓" : "○"}
+      </Text>
+      <Text style={[styles.requisitoTexto, atendido ? styles.requisitoOk : styles.requisitoPendente]}>
+        {children}
+      </Text>
+    </View>
+  );
+}
+
 function Seletor({
   titulo,
   placeholder,
   opcoes,
   valor,
   onChange,
-  desabilitado = false,
-  buscavel = false,
 }: {
   titulo: string;
   placeholder: string;
   opcoes: Opcao[];
   valor: string;
   onChange: (valor: string) => void;
-  desabilitado?: boolean;
-  buscavel?: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
-  const [termo, setTermo] = useState("");
-
   const selecionada = opcoes.find((opcao) => opcao.valor === valor);
-  const termoLimpo = semAcento(termo.trim());
-  const filtradas = termoLimpo
-    ? opcoes.filter((opcao) => semAcento(opcao.rotulo).includes(termoLimpo))
-    : opcoes;
-
-  const fechar = () => {
-    setAberto(false);
-    setTermo("");
-  };
 
   return (
     <>
-      <Pressable
-        onPress={() => setAberto(true)}
-        disabled={desabilitado}
-        style={[styles.seletor, desabilitado && styles.seletorDesabilitado]}
-        accessibilityRole="button"
-      >
+      <Pressable onPress={() => setAberto(true)} style={styles.seletor} accessibilityRole="button">
         <Text
           style={[styles.seletorTexto, !selecionada && styles.seletorPlaceholder]}
           numberOfLines={1}
@@ -246,38 +301,24 @@ function Seletor({
         <Text style={styles.seletorSeta}>▾</Text>
       </Pressable>
 
-      <Modal visible={aberto} animationType="slide" onRequestClose={fechar}>
+      <Modal visible={aberto} animationType="slide" onRequestClose={() => setAberto(false)}>
         <SafeAreaView style={styles.modalFundo}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitulo}>{titulo}</Text>
-            <Pressable onPress={fechar} hitSlop={10} accessibilityLabel="Fechar">
+            <Pressable onPress={() => setAberto(false)} hitSlop={10} accessibilityLabel="Fechar">
               <Text style={styles.modalFechar}>×</Text>
             </Pressable>
           </View>
 
-          {buscavel && (
-            <View style={styles.modalBuscaArea}>
-              <TextInput
-                style={styles.input}
-                placeholder="Buscar..."
-                placeholderTextColor="#9A8F85"
-                value={termo}
-                onChangeText={setTermo}
-                autoCorrect={false}
-              />
-            </View>
-          )}
-
           <FlatList
-            data={filtradas}
+            data={opcoes}
             keyExtractor={(opcao) => opcao.valor}
-            keyboardShouldPersistTaps="handled"
             ListEmptyComponent={<Text style={styles.modalVazio}>Nenhuma opção encontrada.</Text>}
             renderItem={({ item }) => (
               <Pressable
                 onPress={() => {
                   onChange(item.valor);
-                  fechar();
+                  setAberto(false);
                 }}
                 style={({ pressed }) => [styles.modalItem, pressed && styles.pressionado]}
               >
@@ -296,19 +337,18 @@ function Seletor({
   );
 }
 
-export default function Cadastro({
-  criarConta,
-  onCadastroConcluido,
-  onLogin,
-  fotoPadrao = null,
-}: Props) {
+export default function CadastroScreen({ onCadastroConcluido, onLogin }: Props) {
   const [etapaAtual, setEtapaAtual] = useState(0);
 
-  const [estados, setEstados] = useState<Estado[]>([]);
-  const [municipios, setMunicipios] = useState<Municipio[]>([]);
-  const [carregandoMunicipios, setCarregandoMunicipios] = useState(false);
+  const [cep, setCep] = useState("");
+  const [cepErro, setCepErro] = useState("");
+  const [buscandoCep, setBuscandoCep] = useState(false);
+  const [enderecoResolvido, setEnderecoResolvido] = useState<EnderecoCep | null>(null);
   const [estado, setEstado] = useState("");
   const [municipio, setMunicipio] = useState("");
+  const [bairro, setBairro] = useState("");
+  const [logradouro, setLogradouro] = useState("");
+  const cepRequisicao = useRef(0);
 
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
@@ -335,60 +375,22 @@ export default function Cadastro({
   const [verificando, setVerificando] = useState(false);
   const [enviando, setEnviando] = useState(false);
 
+  const requisitosSenha = useMemo(() => checarRequisitosSenha(senha), [senha]);
+  const sugestaoEmail = useMemo(() => sugerirCorrecaoEmail(email), [email]);
+
   const showMessage = (text: string, error = false) => {
     setMessage(text);
     setIsError(error);
   };
 
   useEffect(() => {
-    let cancelado = false;
-
-    fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome")
-      .then((res) => res.json() as Promise<Estado[]>)
-      .then((dados) => {
-        if (!cancelado) setEstados(dados);
-      })
-      .catch((err) => console.error("Erro ao buscar estados", err));
-
-    return () => {
-      cancelado = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!estado) {
-      setMunicipios([]);
-      return;
-    }
-
-    let cancelado = false;
-    setCarregandoMunicipios(true);
-
-    fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${estado}/municipios`)
-      .then((res) => res.json() as Promise<Municipio[]>)
-      .then((dados) => {
-        if (!cancelado) {
-          setMunicipios([...dados].sort((a, b) => a.nome.localeCompare(b.nome)));
-        }
-      })
-      .catch((err) => console.error("Erro ao buscar municípios", err))
-      .finally(() => {
-        if (!cancelado) setCarregandoMunicipios(false);
-      });
-
-    return () => {
-      cancelado = true;
-    };
-  }, [estado]);
-
-  useEffect(() => {
     api<ItemLookup[]>("/tipos-residencia")
       .then(setTiposResidencia)
-      .catch((err: any) => console.error("Erro ao buscar tipos de residência", err));
+      .catch((err) => console.error("Erro ao buscar tipos de residência", err));
 
     api<ItemLookup[]>("/tamanhos-residencia")
       .then(setTamanhosResidencia)
-      .catch((err: any) => console.error("Erro ao buscar tamanhos de residência", err));
+      .catch((err) => console.error("Erro ao buscar tamanhos de residência", err));
   }, []);
 
   const handleTelChange = (valor: string) => {
@@ -424,9 +426,44 @@ export default function Cadastro({
     setIdadeErro(mensagemIdade(interpretarData(formatado)));
   };
 
-  const handleEstadoChange = (sigla: string) => {
-    setEstado(sigla);
+  const handleCepChange = async (texto: string) => {
+    const digitado = texto.replace(/\D/g, "").slice(0, 8);
+
+    cepRequisicao.current += 1;
+    const minhaRequisicao = cepRequisicao.current;
+
+    setCep(digitado);
+    setCepErro("");
+    setEnderecoResolvido(null);
+    setEstado("");
     setMunicipio("");
+    setBairro("");
+    setLogradouro("");
+
+    if (digitado.length !== 8) {
+      setBuscandoCep(false);
+      return;
+    }
+
+    setBuscandoCep(true);
+
+    try {
+      const data = await api<EnderecoCep>(`/endereco/cep/${digitado}`);
+      if (minhaRequisicao !== cepRequisicao.current) return;
+
+      setEnderecoResolvido(data);
+      setEstado(data.estado ?? "");
+      setMunicipio(data.municipio ?? "");
+      setBairro(data.bairro ?? "");
+      setLogradouro(data.logradouro ?? "");
+    } catch (error) {
+      if (minhaRequisicao !== cepRequisicao.current) return;
+
+      setEnderecoResolvido(null);
+      setCepErro(extrairMensagemErro(error, "Não foi possível confirmar este CEP."));
+    } finally {
+      if (minhaRequisicao === cepRequisicao.current) setBuscandoCep(false);
+    }
   };
 
   const validarEtapa = (indice: number): string | null => {
@@ -435,7 +472,8 @@ export default function Cadastro({
       if (!email.trim()) return "Digite seu email.";
       if (!emailValido(email)) return "E-mail inválido.";
       if (!senha) return "Digite uma senha.";
-      if (senha.length < 6) return "A senha precisa ter pelo menos 6 caracteres.";
+      const erroSenha = validarForcaSenha(senha);
+      if (erroSenha) return erroSenha;
       if (senha !== confirmarSenha) return "As senhas não coincidem.";
       return null;
     }
@@ -456,8 +494,9 @@ export default function Cadastro({
 
     if (!idTipoResidencia) return "Selecione o tipo de residência.";
     if (!idTamanhoResidencia) return "Selecione o tamanho da residência.";
-    if (!estado) return "Selecione seu estado.";
-    if (!municipio) return "Selecione seu município.";
+    if (cep.length !== 8) return "Digite um CEP válido.";
+    if (!enderecoResolvido) return "Aguarde a confirmação do CEP antes de continuar.";
+    if (!estado.trim() || !municipio.trim()) return "Preencha estado e município.";
     return null;
   };
 
@@ -506,6 +545,13 @@ export default function Cadastro({
   };
 
   const concluirCadastro = async () => {
+    const erroSenhaSubmit = validarForcaSenha(senha);
+    if (erroSenhaSubmit) {
+      showMessage(erroSenhaSubmit, true);
+      setEtapaAtual(0);
+      return;
+    }
+
     const erroEtapa = validarEtapa(2);
     if (erroEtapa) {
       showMessage(erroEtapa, true);
@@ -521,31 +567,22 @@ export default function Cadastro({
     setEnviando(true);
     showMessage("");
 
-    let conta: ContaCriada;
+    let resposta: RespostaRegistro;
     try {
-      conta = await criarConta(email.trim(), senha);
-    } catch (error) {
-      const code = (error as { code?: string }).code;
-      showMessage(
-        mensagemErroFirebase(code) || "Não foi possível criar sua conta agora. Tente novamente.",
-        true
-      );
-      setEnviando(false);
-      return;
-    }
-
-    let usuario: UsuarioApi;
-    try {
-      usuario = await api<UsuarioApi>("/usuario", {
+      resposta = await api<RespostaRegistro>("/auth/register", {
         method: "POST",
         body: {
           nome: nome.trim(),
           email: email.trim(),
+          senha,
           cpf,
           telefone: tel,
-          estado,
-          municipio,
-          foto: fotoPadrao,
+          cep,
+          estadoCorrigido: estado,
+          municipioCorrigido: municipio,
+          bairroCorrigido: bairro,
+          logradouroCorrigido: logradouro,
+          foto: null,
           dataDeNascimento: data.iso,
           idTipoResidencia: Number(idTipoResidencia),
           idTamanhoResidencia: Number(idTamanhoResidencia),
@@ -555,15 +592,13 @@ export default function Cadastro({
         },
       });
     } catch (error) {
-      console.log(error);
-      showMessage(extrairMensagemErro(error), true);
-
-      try {
-        await conta.desfazer();
-      } catch (erroLimpeza) {
-        console.error("Falha ao desfazer conta do Firebase após erro no cadastro", erroLimpeza);
-      }
-
+      console.error(error);
+      showMessage(
+        error instanceof ErroHttp
+          ? extrairMensagemErro(error, "Não foi possível criar sua conta agora. Tente novamente.")
+          : "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.",
+        true
+      );
       setEnviando(false);
       return;
     }
@@ -571,13 +606,7 @@ export default function Cadastro({
     showMessage("Cadastro realizado com sucesso!");
 
     try {
-      await onCadastroConcluido({
-        id: usuario.idUsuario,
-        firebaseUid: conta.uid,
-        nome: usuario.nome,
-        foto: usuario.foto,
-        perfil: usuario.perfil,
-      });
+      await onCadastroConcluido(resposta);
     } catch (error) {
       console.error("Erro ao finalizar o cadastro", error);
     } finally {
@@ -664,7 +693,8 @@ export default function Cadastro({
                   />
                 </Campo>
 
-                <Campo rotulo="Insira seu email:">
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Insira seu email:</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="Digite seu email"
@@ -677,9 +707,21 @@ export default function Cadastro({
                     autoComplete="email"
                     textContentType="emailAddress"
                   />
-                </Campo>
+                  {!!sugestaoEmail && (
+                    <Text style={styles.sugestaoEmail}>
+                      Você quis dizer?{" "}
+                      <Text
+                        style={styles.sugestaoEmailBotao}
+                        onPress={() => setEmail(sugestaoEmail)}
+                      >
+                        {sugestaoEmail}
+                      </Text>
+                    </Text>
+                  )}
+                </View>
 
-                <Campo rotulo="Digite sua senha:">
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Digite sua senha:</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="Digite sua senha"
@@ -691,7 +733,16 @@ export default function Cadastro({
                     autoCorrect={false}
                     textContentType="newPassword"
                   />
-                </Campo>
+                  {senha.length > 0 && (
+                    <View style={styles.checklistSenha}>
+                      {ITENS_SENHA.map((item) => (
+                        <RequisitoSenha key={item.chave} atendido={requisitosSenha[item.chave]}>
+                          {item.texto}
+                        </RequisitoSenha>
+                      ))}
+                    </View>
+                  )}
+                </View>
 
                 <Campo rotulo="Confirme sua senha:">
                   <TextInput
@@ -806,34 +857,67 @@ export default function Cadastro({
                   />
                 </Campo>
 
-                <Campo rotulo="Digite seu estado:">
-                  <Seletor
-                    titulo="Estado"
-                    placeholder="Selecione um estado"
-                    opcoes={estados.map((e) => ({ valor: e.sigla, rotulo: e.nome }))}
-                    valor={estado}
-                    onChange={handleEstadoChange}
-                    buscavel
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>CEP:</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Digite seu CEP"
+                    placeholderTextColor="#9A8F85"
+                    value={cep}
+                    onChangeText={handleCepChange}
+                    keyboardType="numeric"
+                    maxLength={8}
                   />
-                </Campo>
+                  {buscandoCep && <Text style={styles.infoCampo}>Buscando endereço...</Text>}
+                  {!!cepErro && <Text style={styles.erroCampo}>{cepErro}</Text>}
+                </View>
 
-                <Campo rotulo="Digite seu município:">
-                  <Seletor
-                    titulo="Município"
-                    placeholder={
-                      !estado
-                        ? "Selecione um estado primeiro"
-                        : carregandoMunicipios
-                        ? "Carregando municípios..."
-                        : "Selecione um município"
-                    }
-                    opcoes={municipios.map((m) => ({ valor: m.nome, rotulo: m.nome }))}
-                    valor={municipio}
-                    onChange={setMunicipio}
-                    desabilitado={!estado || carregandoMunicipios}
-                    buscavel
-                  />
-                </Campo>
+                {enderecoResolvido && (
+                  <>
+                    <Campo rotulo="Estado:">
+                      <TextInput
+                        style={styles.input}
+                        placeholder="UF"
+                        placeholderTextColor="#9A8F85"
+                        value={estado}
+                        onChangeText={(texto) => setEstado(texto.toUpperCase())}
+                        maxLength={2}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                      />
+                    </Campo>
+
+                    <Campo rotulo="Município:">
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Digite seu município"
+                        placeholderTextColor="#9A8F85"
+                        value={municipio}
+                        onChangeText={setMunicipio}
+                      />
+                    </Campo>
+
+                    <Campo rotulo="Bairro:">
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Digite seu bairro"
+                        placeholderTextColor="#9A8F85"
+                        value={bairro}
+                        onChangeText={setBairro}
+                      />
+                    </Campo>
+
+                    <Campo rotulo="Logradouro:">
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Rua, avenida..."
+                        placeholderTextColor="#9A8F85"
+                        value={logradouro}
+                        onChangeText={setLogradouro}
+                      />
+                    </Campo>
+                  </>
+                )}
               </>
             )}
 
