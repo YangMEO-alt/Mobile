@@ -1,0 +1,42 @@
+import {StyleSheet} from 'react-native';
+
+export const modalStyles = StyleSheet.create({
+  modalFundo: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalCaixa: {
+    width: "100%",
+    maxWidth: 420,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+  },
+  modalTitulo: { fontSize: 20, fontWeight: "700", marginBottom: 12 },
+  modalTexto: { fontSize: 16, lineHeight: 23, marginBottom: 16 },
+  avisoCancelada: { color: "#666666", fontSize: 14, lineHeight: 20 },
+  avisoConcluida: { color: "#2E7D32", fontSize: 14, lineHeight: 20, marginTop: 8 },
+  endereco: { color: "#444444", fontSize: 14, marginTop: 8, marginBottom: 8 },
+  dataDeEntrega: { color: "#444444", fontSize: 14, marginBottom: 8 },
+  dataDeEntregaNegrito: { fontWeight: "700" },
+  linkMapaArea: { alignSelf: "flex-start", paddingVertical: 8 },
+  linkMapa: { color: "#2E7D32", fontWeight: "600", textDecorationLine: "underline" },
+  erro: { color: "#B3261E", marginBottom: 12 },
+  modalAcoes: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 8 },
+  modalCancelar: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8 },
+  modalCancelarTexto: { color: "#444444", fontWeight: "600" },
+  modalConfirmar: {
+    minWidth: 110,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "#2E7D32",
+  },
+  modalConfirmarDesabilitado: { opacity: 0.6 },
+  modalConfirmarTexto: { color: "#FFFFFF", fontWeight: "600" },
+});

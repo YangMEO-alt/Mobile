@@ -29,7 +29,6 @@ export default function App() {
 
   return (
     <Login
-      entrar={async () => ({ uid: "teste" })}
       onLoginSucesso={irParaHome}
       onCadastro={() => setTela("cadastro")}
     />

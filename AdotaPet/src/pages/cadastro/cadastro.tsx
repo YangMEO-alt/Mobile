@@ -380,7 +380,7 @@ export default function CadastroScreen({ onCadastroConcluido, onLogin }: Props) 
 
   const showMessage = (text: string, error = false) => {
     setMessage(text);
-    setIsError(error);
+    setIsError(error)
   };
 
   useEffect(() => {
