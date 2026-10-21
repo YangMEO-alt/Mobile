@@ -1,4 +1,4 @@
-export const API_URL = "https://adotapet-production.up.railway.app";
+export const API_URL = "adotapet-production.up.railway.app";
 
 export const MENSAGEM_CONTA_SUSPENSA = "Esta conta foi suspensa.";
 
