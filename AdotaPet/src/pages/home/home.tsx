@@ -190,8 +190,9 @@ export default function HomeScreen({
         console.error("Erro ao buscar cores", coresRes.reason);
       }
 
+      console.log(especiesRes);
       setOpcoesFiltro({
-        especies: especiesRes.status === "fulfilled" ? especiesRes.value.map((e: { nome: any; }) => e.nome) : [],
+        especies: especiesRes.status === "fulfilled" ? especiesRes.value.map((e) => e.nome) : [],
         portes: portesRes.status === "fulfilled" ? portesRes.value : [],
         cores: coresRes.status === "fulfilled" ? coresRes.value : [],
       });

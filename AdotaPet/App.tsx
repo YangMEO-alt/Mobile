@@ -2,8 +2,9 @@ import { useState } from "react";
 import Login from "./src/pages/login/index";
 import Cadastro from "./src/pages/cadastro/cadastro";
 import Home from "./src/pages/home/home";
+import Chat from "./src/pages/chat/chat";
 
-type Tela = "login" | "cadastro" | "home";
+type Tela = "login" | "cadastro" | "home" | "chat";
 
 export default function App() {
   const [tela, setTela] = useState<Tela>("login");

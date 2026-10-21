@@ -53,6 +53,10 @@ export default function LoginScreen({ onLoginSucesso, onEsqueciSenha, onCadastro
         method: "POST",
         body: { email: email.trim(), senha },
       });
+
+      if (!sessao || typeof sessao.accessToken !== "string") {
+        throw new ErroHttp(401, "Resposta de login inválida");
+      }
     } catch (error) {
       console.error(error);
 
